@@ -7,11 +7,11 @@ Classical ML solution for routing crypto/fintech support tickets into four queue
 - `fraud-report`
 - `general`
 
-The goal is a small, defensible baseline that can be explained and shipped inside a short take-home window.
+Aim was a small baseline I can defend line by line, sized for a short take-home and not a platform build.
 
 ## Approach
 
-I used a classical text classifier: **TF-IDF word unigrams/bigrams + LinearSVC**.
+I went classical: TF-IDF word unigrams and bigrams into a LinearSVC.
 
 Why this choice:
 
@@ -40,40 +40,40 @@ Class distribution in the provided training file:
 
 ## Evaluation
 
-Primary metric: **macro F1**, with **fraud recall** tracked separately.
+Primary metric is macro F1, and I track fraud recall on its own.
 
 Reasoning:
 
-- Accuracy can look good by favoring the majority class (`general`).
-- Macro F1 gives each route equal weight, so minority classes matter.
-- `fraud-report` is the highest-stakes route to miss, so I track recall on it explicitly.
+- Accuracy can look good just by favoring the majority class (`general`).
+- Macro F1 weights each route equally, so the small classes still count.
+- `fraud-report` is the worst route to miss, so I watch its recall directly.
 
-### The data is templated, so a naive split leaks
+### The data is templated, which makes a naive split lie to you
 
-The most important thing I found in this dataset: the ~400 rows reduce to about **70 distinct sentence templates** (roughly 5-6 near-duplicate rows each). Rows differ only by a swapped coin name, device, dollar amount, or a polite prefix/suffix:
+First thing I did was read the actual rows, and they're templated. The ~400 messages come from about 70 underlying sentence templates, 5-6 near-duplicates each, swapping a coin name, a device, a dollar amount, or a polite opener:
 
 ```text
 "How does staking work and what rewards can I expect on Polygon? Please advise."
 "Hey, How does staking work and what rewards can I expect on Ethereum? Thanks."
 ```
 
-A random train/validation split puts the *same template* on both sides, TF-IDF memorizes it, and **every metric reads a perfect 1.0000**. That number is leakage, not skill. The hidden holdout will use phrasings the model has never seen, so it will behave like a split where no template is shared.
+A random split drops copies of the same template on both sides. TF-IDF memorizes them and every metric comes back a clean 1.0000. That is leakage, not skill. The hidden holdout will be worded in ways the model never saw, so it will behave like a split where no template is shared, not like the random one.
 
-So I report two numbers (both from `train.py`):
+So I report two numbers, both printed by `train.py`:
 
-| Split | macro F1 | fraud recall | meaning |
+| Split | macro F1 | fraud recall | what it means |
 |---|---:|---:|---|
-| Random 80/20 + random 5-fold CV | 1.0000 | 1.0000 | **leaky** upper bound, ignore |
-| Grouped 5-fold CV (no template shared) | **~0.80** | **~0.72** | **honest** generalization estimate |
+| Random 80/20 + random 5-fold CV | 1.0000 | 1.0000 | leaky, treat as an upper bound |
+| Grouped 5-fold CV (no shared template) | ~0.80 | ~0.72 | honest, what I expect on the holdout |
 
-The honest estimate is stable across seeds (macro F1 0.80 ± 0.01; fraud recall 0.72 ± 0.05, dipping as low as 0.64). I treat the grouped number as my prediction of hidden-holdout performance. The grouping is done by [`leakage.py`](src/ticket_triage/leakage.py), which collapses each message to its template skeleton; `StratifiedGroupKFold` then keeps every template in a single fold.
+The grouped number holds up across seeds: macro F1 0.80 ± 0.01, fraud recall 0.72 ± 0.05 (it slips to 0.64 on a bad split). The grouping lives in [`leakage.py`](src/ticket_triage/leakage.py), which strips each message to its template skeleton so `StratifiedGroupKFold` can keep every skeleton inside one fold.
 
-The operational takeaway is the fraud row: ~0.72 recall means roughly **one in four fraud reports phrased in a new way would be misrouted**, and it is the noisiest metric. That, not the macro F1, is what I would gate on in production (see escalation note below).
+The fraud row is the one I actually care about. A recall of 0.72 means roughly one in four fraud reports worded in a new way land in the wrong queue, and it is the noisiest of the four metrics. In production that is the number I would put a threshold on and escalate against, not macro F1.
 
 ### Class imbalance handling
 
-- The model uses `class_weight="balanced"` in `LinearSVC`, raising the cost of mistakes on minority classes, especially `fraud-report`.
-- I would know imbalance is hurting if the gap between weighted F1 and macro F1 widens, or if the grouped fraud recall drops below the operational threshold while overall accuracy stays high.
+- I use `class_weight="balanced"` in `LinearSVC`, which raises the cost of getting a minority class wrong, fraud-report most of all.
+- I would know imbalance was hurting if the gap between weighted F1 and macro F1 widened, or if grouped fraud recall dropped under threshold while accuracy stayed high.
 
 ## Setup
 
@@ -167,7 +167,7 @@ Deliberately left out:
 
 What I was unsure about:
 
-- Whether to add character n-grams (for typo and novel-phrasing robustness). I could only evaluate this honestly *after* fixing the leakage, because against the leaky 1.0000 every variant looks identical. Under grouped CV, adding `char_wb(3,5)` lifts macro F1 slightly (~0.80 -> ~0.83) but does **not** help fraud recall and adds variance to it. Since fraud recall is the metric I most care about, I kept the simpler word-only model. The trade-off is a little less robustness to misspellings for better fraud-recall stability and lower complexity. This is the clearest example in the project of the honest eval changing a decision.
+- Whether to add character n-grams for typo and novel-phrasing tolerance. I could only judge this after fixing the leakage, since against a leaky 1.0000 every variant looks the same. Under grouped CV, adding `char_wb(3,5)` nudges macro F1 up (~0.80 to ~0.83) but doesn't help fraud recall and makes it bounce around more. Fraud recall is the number I care about most, so I stayed with the simpler word-only model: I give up a little tolerance for typos to get steadier fraud recall and fewer moving parts. It is the one place where fixing the eval actually flipped a decision I would otherwise have made the other way.
 
 What I would do with more time:
 

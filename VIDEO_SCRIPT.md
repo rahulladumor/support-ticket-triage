@@ -1,60 +1,60 @@
 # Short video script - support-ticket triage lab
 
-Target length: 5-7 minutes.
+Target length: 5-7 minutes. These are notes I talk from, not a word-for-word read.
 
 ## 1. Opening
 
-Hi, this is Rahul. I built a small classical ML service for routing support tickets into four queues: account-access, transaction-dispute, fraud-report, and general.
+Hi, I'm Rahul. This is a small classical ML service that routes support tickets into four queues: account-access, transaction-dispute, fraud-report, and general.
 
-I kept the solution intentionally small because the dataset has around 400 labeled examples and the requirement is a reliable baseline, not a large ML platform.
+I kept it deliberately small. There are only about 400 labeled examples, and the ask is a baseline I can trust and defend, not a big ML platform.
 
 ## 2. Model choice
 
-The model is TF-IDF word unigrams and bigrams with a LinearSVC classifier.
+It's TF-IDF, word unigrams and bigrams, into a LinearSVC.
 
-I chose this because the ticket messages are short, the route labels are intent-like, and lexical signals are strong. A classical model is cheap, deterministic, fast, easy to test, and easier to defend than an LLM for this scope.
+The messages are short and the routes are basically intent labels, so the lexical signal is strong, which is exactly where a linear model over TF-IDF does well. It's also cheap, deterministic, and easy to test, and I can explain every part of it. An LLM would be heavier to run and harder to defend for something this size.
 
-I considered character n-grams for typo tolerance. I will come back to why I left them out, because that decision only became answerable after I fixed a leakage problem.
+I did try character n-grams for typo tolerance. I'll come back to that, because it only became a real decision once I'd fixed a leakage problem.
 
-## 3. The leakage I caught (the most important part)
+## 3. The leakage I caught (the part I'd lead with)
 
-The first thing I did was look at the data, and the rows are templated. About 400 rows collapse to roughly 70 distinct sentence templates, five or six near-duplicates each, differing only by a coin name, a device, a dollar amount, or a polite prefix like "Hi" or "Urgent".
+So the first thing I did was actually read the data, and the rows are templated. Those ~400 rows really come from about 70 sentence templates, five or six near-duplicates each, with just a coin name, a device, a dollar amount, or a polite opener like "Hi" or "Urgent" swapped in.
 
-That matters because a random train/validation split puts the same template on both sides. TF-IDF just memorizes it, and every metric reads a perfect 1.0000. That is leakage, not skill, and the hidden holdout will use phrasings the model has never seen.
+That matters because if I split randomly, the same template ends up in train and in validation. TF-IDF memorizes it, and every metric comes back a perfect 1.0000. That's not skill, that's leakage, and your hidden holdout is going to be worded in ways the model has never seen.
 
-So I group rows by their template skeleton and use StratifiedGroupKFold, which keeps each template entirely inside one fold. The honest number drops to about 0.80 macro F1 and about 0.72 fraud recall. That grouped number is my actual prediction for the hidden holdout. I keep the leaky 1.0000 in the report only to show the gap.
+So I group the rows by their template skeleton and use StratifiedGroupKFold, which keeps a whole template inside one fold. Do that and the honest number drops to about 0.80 macro F1 and about 0.72 fraud recall. That grouped number is what I actually expect on your holdout. I left the 1.0000 in the report on purpose, just to show the gap.
 
-## 4. Metric and imbalance handling
+## 4. Metric and imbalance
 
-I used macro F1 as the primary metric because the classes are imbalanced. General has the most examples, fraud-report the fewest, so accuracy or weighted F1 could hide poor minority-class behavior.
+Macro F1 is my primary metric, because the classes are imbalanced. General is the biggest, fraud-report the smallest, and accuracy or weighted F1 would let me look good while quietly missing the small classes.
 
-Fraud-report is the highest-stakes route to miss, so I track fraud recall separately. Honestly it is about 0.72 and noisy, down to 0.64 on some splits, which means roughly one in four novel-phrasing fraud tickets would be misrouted. I would rather escalate those to human review than miss them.
+Fraud-report is the most expensive one to get wrong, so I track its recall on its own. Honestly it's around 0.72 and noisy, down to 0.64 on a bad split, so roughly one in four fraud tickets in new wording would get misrouted. I'd rather push those to a human than miss them.
 
-For training I used class_weight='balanced' in LinearSVC, which raises the penalty on minority-class mistakes. I would know imbalance is hurting if the weighted-versus-macro F1 gap widens, or if grouped fraud recall falls below threshold while accuracy stays high.
+For training I set class_weight='balanced', which makes minority-class mistakes cost more. The way I'd catch imbalance hurting me is the gap between weighted and macro F1 opening up, or grouped fraud recall sliding under threshold while accuracy still looks fine.
 
 ## 5. Code walkthrough
 
-The important files are:
+Quick tour of the files:
 
-- src/ticket_triage/model.py: model definition.
-- src/ticket_triage/leakage.py: template-skeleton grouping that drives the honest evaluation.
-- src/ticket_triage/train.py: leaky and grouped evaluation plus final model save.
-- src/ticket_triage/predictor.py: simple predict(text) -> label interface.
-- src/ticket_triage/predict_csv.py: holdout scoring command.
-- tests/: input validation, prediction behavior, and template-grouping tests.
+- model.py, the model itself.
+- leakage.py, the template-skeleton grouping the honest eval depends on.
+- train.py, runs both the leaky and the grouped evaluation, then saves the model.
+- predictor.py, the predict(text) -> label interface.
+- predict_csv.py, the holdout scoring command.
+- tests/, input validation, a prediction check, and the grouping tests.
 
-The training script reports both the leaky split and the grouped (honest) cross-validation, then refits on all labeled data before saving the model for hidden holdout scoring.
+train.py reports both splits, then refits on all the labeled data before it saves, so the shipped model has seen everything.
 
-## 6. Trade-off I was unsure about
+## 6. A call I wasn't sure about
 
-Whether to add character n-grams. They help with misspellings and messy input. But I could only judge them after fixing the leakage, because against the leaky 1.0000 every variant looks identical. Under grouped CV, adding char n-grams lifts macro F1 a little, from about 0.80 to 0.83, but it does not help fraud recall and makes it noisier. Since fraud recall is the metric I care most about, I kept the simpler word-only model. That is the clearest case where the honest evaluation changed my decision.
+The character n-grams. They'd help with misspellings and messy input, so it was tempting. But I couldn't judge them honestly until the leakage was fixed, since against a 1.0000 everything ties. Under grouped CV they bump macro F1 a little, 0.80 to about 0.83, but they don't help fraud recall and they make it jump around more. Fraud recall is the thing I care about, so I kept the simpler word-only model. That's the one spot where fixing the eval actually changed what I shipped.
 
-## 7. Scaling or LLM discussion
+## 7. Scale, and when I'd reach for an LLM
 
-At 10,000 requests per minute, this classical model is the right default because it is low-latency, cheap, and can run horizontally without external API dependency.
+At 10,000 requests a minute I'd keep this model. It's fast, it's cheap, and it scales out with no API in the loop.
 
-I would consider an LLM when tickets become longer, multilingual, ambiguous, or require reasoning over account context. In that case, I would not replace everything immediately. I would use a hybrid flow: classical classifier for most tickets, and LLM or human review for low-confidence and high-risk cases.
+I'd bring in an LLM when the tickets get longer, multilingual, genuinely ambiguous, or need reasoning over someone's account history. Even then I wouldn't rip this out. I'd run a hybrid: the classifier handles the easy majority, and anything low-confidence or fraud-shaped goes to an LLM or a person.
 
 ## 8. Closing
 
-The main thing I optimized for here is a clean, testable, defensible ML baseline. With more time, I would add repeated cross-validation, error analysis, confidence-based escalation, and production monitoring around fraud recall and routing drift.
+What I went for here is a small, tested baseline I can stand behind, with an evaluation that tells the truth instead of a flattering 1.0000. With more time I'd add repeated CV with intervals, some error analysis on fraud versus dispute, a confidence threshold for escalation, and monitoring on fraud recall and drift once it's live.
