@@ -7,11 +7,17 @@ import json
 from pathlib import Path
 
 import joblib
-from sklearn.model_selection import StratifiedKFold, cross_val_predict, train_test_split
+from sklearn.model_selection import (
+    StratifiedGroupKFold,
+    StratifiedKFold,
+    cross_val_predict,
+    train_test_split,
+)
 
 from .config import DEFAULT_LABEL_COLUMN, DEFAULT_TEXT_COLUMN, LABELS, RANDOM_STATE
 from .data import load_training_data
 from .evaluation import evaluate_predictions, format_metrics
+from .leakage import group_labels
 from .model import build_model
 
 
@@ -32,10 +38,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_cross_validation_metrics(x, y, folds: int, random_state: int) -> dict:
-    """Evaluate the full pipeline using out-of-fold predictions.
+    """Out-of-fold metrics from a plain stratified split.
 
-    This is not used for fitting the final model. It is a sanity check against
-    relying too heavily on one train/validation split for a small dataset.
+    WARNING: the data is templated (~400 rows, ~71 distinct templates), so a
+    random split leaks near-duplicate templates across folds and reads a
+    leakage-inflated 1.0000. Kept only to make that leakage visible next to the
+    honest grouped number below. Not a generalization estimate.
     """
     if folds < 2:
         return {"enabled": False, "reason": "cv_folds less than 2"}
@@ -50,7 +58,43 @@ def build_cross_validation_metrics(x, y, folds: int, random_state: int) -> dict:
     cv = StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state)
     oof_predictions = cross_val_predict(build_model(), x, y, cv=cv)
     cv_metrics = evaluate_predictions(list(y), list(oof_predictions))
-    cv_metrics.update({"enabled": True, "folds": folds, "method": "StratifiedKFold out-of-fold predictions"})
+    cv_metrics.update(
+        {
+            "enabled": True,
+            "folds": folds,
+            "method": "StratifiedKFold out-of-fold predictions (LEAKY: templates shared across folds)",
+        }
+    )
+    return cv_metrics
+
+
+def build_grouped_cv_metrics(x, y, folds: int, random_state: int) -> dict:
+    """Honest generalization estimate: out-of-fold metrics with no template
+    shared between train and validation.
+
+    Rows are grouped by template skeleton and split with StratifiedGroupKFold,
+    so the model is always scored on phrasings it has not seen. This is the
+    number that predicts hidden-holdout behavior, unlike the leaky split above.
+    """
+    if folds < 2:
+        return {"enabled": False, "reason": "cv_folds less than 2"}
+
+    groups = group_labels(x)
+    n_groups = len(set(groups))
+    if folds > n_groups:
+        return {"enabled": False, "reason": f"cv_folds={folds} exceeds template count={n_groups}"}
+
+    cv = StratifiedGroupKFold(n_splits=folds, shuffle=True, random_state=random_state)
+    oof_predictions = cross_val_predict(build_model(), x, y, cv=cv, groups=groups)
+    cv_metrics = evaluate_predictions(list(y), list(oof_predictions))
+    cv_metrics.update(
+        {
+            "enabled": True,
+            "folds": folds,
+            "n_templates": n_groups,
+            "method": "StratifiedGroupKFold out-of-fold predictions (HONEST: no template shared across folds)",
+        }
+    )
     return cv_metrics
 
 
@@ -81,6 +125,7 @@ def main() -> None:
             "random_state": args.random_state,
             "class_counts_total": y.value_counts().to_dict(),
             "cross_validation": build_cross_validation_metrics(x, y, args.cv_folds, args.random_state),
+            "grouped_cross_validation": build_grouped_cv_metrics(x, y, args.cv_folds, args.random_state),
             "model_notes": {
                 "algorithm": "TF-IDF word unigrams/bigrams + LinearSVC",
                 "imbalance_strategy": "LinearSVC class_weight='balanced'",
@@ -100,12 +145,17 @@ def main() -> None:
     metrics_out.parent.mkdir(parents=True, exist_ok=True)
     metrics_out.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
+    print("Validation split (LEAKY - templates shared, treat as upper bound):")
     print(format_metrics(metrics))
     cv_metrics = metrics.get("cross_validation", {})
     if cv_metrics.get("enabled"):
-        print("\nCross-validation sanity check:")
+        print("\nRandom 5-fold CV (LEAKY sanity check):")
         print(format_metrics(cv_metrics))
-    print(f"Saved model:   {model_out}")
+    grouped = metrics.get("grouped_cross_validation", {})
+    if grouped.get("enabled"):
+        print(f"\nGrouped 5-fold CV (HONEST, {grouped['n_templates']} templates, predicts hidden holdout):")
+        print(format_metrics(grouped))
+    print(f"\nSaved model:   {model_out}")
     print(f"Saved metrics: {metrics_out}")
 
 

@@ -1,14 +1,23 @@
+Validation split (LEAKY - templates shared, treat as upper bound):
 Primary metric: macro_f1
 Accuracy:       1.0000
 Macro F1:       1.0000
 Weighted F1:    1.0000
 Fraud recall:   1.0000
 
-Cross-validation sanity check:
+Random 5-fold CV (LEAKY sanity check):
 Primary metric: macro_f1
 Accuracy:       1.0000
 Macro F1:       1.0000
 Weighted F1:    1.0000
 Fraud recall:   1.0000
+
+Grouped 5-fold CV (HONEST, 70 templates, predicts hidden holdout):
+Primary metric: macro_f1
+Accuracy:       0.8025
+Macro F1:       0.7842
+Weighted F1:    0.8055
+Fraud recall:   0.7000
+
 Saved model:   models/ticket_triage.joblib
 Saved metrics: reports/metrics.json
