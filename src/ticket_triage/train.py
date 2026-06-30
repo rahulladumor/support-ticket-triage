@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import joblib
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, cross_val_predict, train_test_split
 
 from .config import DEFAULT_LABEL_COLUMN, DEFAULT_TEXT_COLUMN, LABELS, RANDOM_STATE
 from .data import load_training_data
@@ -22,7 +22,36 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--metrics-out", default="reports/metrics.json", help="Metrics JSON output path")
     parser.add_argument("--test-size", type=float, default=0.2, help="Validation split size")
     parser.add_argument("--random-state", type=int, default=RANDOM_STATE, help="Random seed")
+    parser.add_argument(
+        "--cv-folds",
+        type=int,
+        default=5,
+        help="Number of stratified folds for out-of-fold sanity-check metrics. Use 0 to skip.",
+    )
     return parser.parse_args()
+
+
+def build_cross_validation_metrics(x, y, folds: int, random_state: int) -> dict:
+    """Evaluate the full pipeline using out-of-fold predictions.
+
+    This is not used for fitting the final model. It is a sanity check against
+    relying too heavily on one train/validation split for a small dataset.
+    """
+    if folds < 2:
+        return {"enabled": False, "reason": "cv_folds less than 2"}
+
+    min_class_count = int(y.value_counts().min())
+    if folds > min_class_count:
+        return {
+            "enabled": False,
+            "reason": f"cv_folds={folds} exceeds smallest class count={min_class_count}",
+        }
+
+    cv = StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state)
+    oof_predictions = cross_val_predict(build_model(), x, y, cv=cv)
+    cv_metrics = evaluate_predictions(list(y), list(oof_predictions))
+    cv_metrics.update({"enabled": True, "folds": folds, "method": "StratifiedKFold out-of-fold predictions"})
+    return cv_metrics
 
 
 def main() -> None:
@@ -51,6 +80,7 @@ def main() -> None:
             "validation_split": args.test_size,
             "random_state": args.random_state,
             "class_counts_total": y.value_counts().to_dict(),
+            "cross_validation": build_cross_validation_metrics(x, y, args.cv_folds, args.random_state),
             "model_notes": {
                 "algorithm": "TF-IDF word unigrams/bigrams + LinearSVC",
                 "imbalance_strategy": "LinearSVC class_weight='balanced'",
@@ -71,6 +101,10 @@ def main() -> None:
     metrics_out.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
     print(format_metrics(metrics))
+    cv_metrics = metrics.get("cross_validation", {})
+    if cv_metrics.get("enabled"):
+        print("\nCross-validation sanity check:")
+        print(format_metrics(cv_metrics))
     print(f"Saved model:   {model_out}")
     print(f"Saved metrics: {metrics_out}")
 

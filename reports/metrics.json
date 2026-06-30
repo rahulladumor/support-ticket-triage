@@ -1,0 +1,174 @@
+{
+  "primary_metric": "macro_f1",
+  "accuracy": 1.0,
+  "macro_f1": 1.0,
+  "weighted_f1": 1.0,
+  "fraud_recall": 1.0,
+  "classification_report": {
+    "account-access": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 20.0
+    },
+    "fraud-report": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "general": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 32.0
+    },
+    "transaction-dispute": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 18.0
+    },
+    "accuracy": 1.0,
+    "macro avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 80.0
+    },
+    "weighted avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 80.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      20,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      10,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      32,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      18
+    ]
+  ],
+  "label_order": [
+    "account-access",
+    "fraud-report",
+    "general",
+    "transaction-dispute"
+  ],
+  "train_rows": 320,
+  "validation_rows": 80,
+  "validation_split": 0.2,
+  "random_state": 42,
+  "class_counts_total": {
+    "general": 160,
+    "account-access": 100,
+    "transaction-dispute": 90,
+    "fraud-report": 50
+  },
+  "cross_validation": {
+    "primary_metric": "macro_f1",
+    "accuracy": 1.0,
+    "macro_f1": 1.0,
+    "weighted_f1": 1.0,
+    "fraud_recall": 1.0,
+    "classification_report": {
+      "account-access": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 100.0
+      },
+      "fraud-report": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 50.0
+      },
+      "general": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 160.0
+      },
+      "transaction-dispute": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 90.0
+      },
+      "accuracy": 1.0,
+      "macro avg": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 400.0
+      },
+      "weighted avg": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 400.0
+      }
+    },
+    "confusion_matrix": [
+      [
+        100,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        50,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        160,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        90
+      ]
+    ],
+    "label_order": [
+      "account-access",
+      "fraud-report",
+      "general",
+      "transaction-dispute"
+    ],
+    "enabled": true,
+    "folds": 5,
+    "method": "StratifiedKFold out-of-fold predictions"
+  },
+  "model_notes": {
+    "algorithm": "TF-IDF word unigrams/bigrams + LinearSVC",
+    "imbalance_strategy": "LinearSVC class_weight='balanced'",
+    "final_training": "After validation, the saved model is refit on all labeled rows for hidden holdout scoring."
+  }
+}

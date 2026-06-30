@@ -40,7 +40,7 @@ Class distribution in the provided training file:
 
 ## Evaluation
 
-I use a stratified 80/20 train/validation split.
+I use a stratified 80/20 train/validation split as the required primary validation path. I also run a 5-fold stratified out-of-fold cross-validation sanity check so the result is not based only on one lucky split.
 
 Primary metric: **macro F1**.
 
@@ -65,7 +65,7 @@ Weighted F1:    1.0000
 Fraud recall:   1.0000
 ```
 
-I do not treat perfect validation as proof the model is production-ready. The dataset is small and the language patterns are clean, so hidden holdout performance is the real test.
+The 5-fold stratified cross-validation sanity check also produced 1.0000 macro F1 and 1.0000 fraud recall on this dataset. I do not treat perfect validation as proof the model is production-ready. The dataset is small and the language patterns are clean, so hidden holdout performance is the real test.
 
 ## Setup
 
@@ -135,13 +135,14 @@ Current tests cover:
 
 - Input validation for empty/non-string messages.
 - End-to-end `predict(text) -> label` behavior on a small fitted classifier.
+- Holdout CSV scoring smoke test that writes a `predicted_label` column.
 
 ## Scope and trade-offs
 
 Prioritized:
 
 - Clean classical baseline.
-- Stratified validation split.
+- Stratified validation split plus cross-validation sanity check.
 - Macro F1 plus fraud recall.
 - Imbalance handling through class weighting.
 - Simple `predict(text) -> label` interface.
@@ -161,7 +162,7 @@ What I was unsure about:
 
 What I would do with more time:
 
-- Add repeated stratified cross-validation and confidence intervals.
+- Add repeated stratified cross-validation with confidence intervals.
 - Build a small error-analysis notebook or markdown report.
 - Add thresholding/escalation logic for low-confidence or high-risk fraud-like messages.
 - Evaluate adversarial/ambiguous examples, especially fraud vs transaction dispute.
